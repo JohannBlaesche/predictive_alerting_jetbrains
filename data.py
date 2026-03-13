@@ -45,3 +45,20 @@ def make_windows(series, incident, window_size=50, horizon=10):
     y = np.array(y)
 
     return X, y
+
+
+def chronological_split(X, y, train_frac=0.6, val_frac=0.2):
+    n = len(X)
+    train_end = int(n * train_frac)
+    val_end = int(n * (train_frac + val_frac))
+
+    X_train = X[:train_end]
+    y_train = y[:train_end]
+
+    X_val = X[train_end:val_end]
+    y_val = y[train_end:val_end]
+
+    X_test = X[val_end:]
+    y_test = y[val_end:]
+
+    return X_train, y_train, X_val, y_val, X_test, y_test
