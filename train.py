@@ -2,35 +2,6 @@ from pathlib import Path
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (
-    classification_report,
-    confusion_matrix,
-    precision_recall_fscore_support,
-)
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-
-from data import make_synthetic_series, make_windows
-from utils import (
-    find_best_threshold,
-    evaluate_at_threshold,
-    print_metrics,
-    plot_series_with_incidents,
-)
-
-
-WINDOW_SIZE = 50
-HORIZON = 15
-TEST_SIZE = 0.25
-RANDOM_STATE = 42
-
-TRAIN_FRAC = 0.6
-VAL_FRAC = 0.2
-
-from pathlib import Path
-
-import numpy as np
-from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
 from data import make_synthetic_series, make_windows, chronological_split
