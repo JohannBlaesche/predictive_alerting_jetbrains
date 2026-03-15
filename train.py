@@ -6,10 +6,10 @@ from sklearn.preprocessing import StandardScaler
 
 from data import make_synthetic_series, make_windows, chronological_split
 from utils import (
-    find_best_threshold,
     evaluate_at_threshold,
-    print_metrics,
     plot_series_with_incidents,
+    plot_predictions,
+    save_summary,
 )
 
 
@@ -26,17 +26,14 @@ OUTPUT_DIR = Path("outputs")
 def main():
     OUTPUT_DIR.mkdir(exist_ok=True)
 
-    # 1) create synthetic data
     series, incident = make_synthetic_series(n_steps=6000, seed=RANDOM_STATE)
 
-    # save quick plot for inspection
     plot_series_with_incidents(
         series,
         incident,
         save_path=OUTPUT_DIR / "synthetic_series.png",
     )
 
-    # 2) convert to sliding-window dataset
     X, y = make_windows(
         series,
         incident,
@@ -44,12 +41,11 @@ def main():
         horizon=HORIZON,
     )
 
-    print("full dataset")
+    print("dataset")
     print("X shape:", X.shape)
     print("y shape:", y.shape)
-    print("positive rate:", round(y.mean(), 4))
+    print("positive rate:", round(float(y.mean()), 4))
 
-    # 3) chronological split
     X_train, y_train, X_val, y_val, X_test, y_test = chronological_split(
         X,
         y,
@@ -57,54 +53,82 @@ def main():
         val_frac=VAL_FRAC,
     )
 
-    print("\nsplit sizes")
-    print("train:", X_train.shape, y_train.shape)
-    print("val:  ", X_val.shape, y_val.shape)
-    print("test: ", X_test.shape, y_test.shape)
+    print()
+    print("split sizes")
+    print("train:", X_train.shape)
+    print("val:  ", X_val.shape)
+    print("test: ", X_test.shape)
 
-    # 4) normalize
     scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_val_scaled = scaler.transform(X_val)
-    X_test_scaled = scaler.transform(X_test)
+    X_train = scaler.fit_transform(X_train)
+    X_val = scaler.transform(X_val)
+    X_test = scaler.transform(X_test)
 
-    # 5) train simple baseline
-    model = LogisticRegression(
-        max_iter=500,
-        random_state=RANDOM_STATE,
-    )
-    model.fit(X_train_scaled, y_train)
+    model = LogisticRegression(max_iter=500, random_state=RANDOM_STATE)
+    model.fit(X_train, y_train)
 
-    # 6) threshold tuning on validation split
-    val_probs = model.predict_proba(X_val_scaled)[:, 1]
-    best_thr, table = find_best_threshold(y_val, val_probs)
+    val_probs = model.predict_proba(X_val)[:, 1]
 
-    print("\nvalidation threshold sweep")
-    for row in table:
+    thresholds = np.linspace(0.1, 0.9, 17)
+
+    best_thr = 0.5
+    best_f1 = -1.0
+    rows = []
+
+    print()
+    print("validation threshold sweep")
+    for thr in thresholds:
+        m = evaluate_at_threshold(y_val, val_probs, thr)
+
+        rows.append((thr, m["precision"], m["recall"], m["f1"]))
+
         print(
-            f"thr={row['threshold']:.2f}  "
-            f"p={row['precision']:.3f}  "
-            f"r={row['recall']:.3f}  "
-            f"f1={row['f1']:.3f}"
+            f"thr={thr:.2f} p={m['precision']:.3f} r={m['recall']:.3f} f1={m['f1']:.3f}"
         )
 
-    print("\nbest validation threshold based on f1:")
-    print(best_thr)
+        if m["f1"] > best_f1:
+            best_f1 = m["f1"]
+            best_thr = float(thr)
 
-    # 7) final evaluation on test split
-    test_probs = model.predict_proba(X_test_scaled)[:, 1]
-    test_metrics = evaluate_at_threshold(
+    with open(OUTPUT_DIR / "val_thresholds.csv", "w", encoding="utf-8") as f:
+        f.write("threshold,precision,recall,f1\n")
+        for thr, p, r, f1 in rows:
+            f.write(f"{thr:.3f},{p:.6f},{r:.6f},{f1:.6f}\n")
+
+    print()
+    print("chosen threshold:", round(best_thr, 3))
+
+    test_probs = model.predict_proba(X_test)[:, 1]
+    test_metrics = evaluate_at_threshold(y_test, test_probs, best_thr)
+
+    print()
+    print("test metrics")
+    print("precision:", round(float(test_metrics["precision"]), 3))
+    print("recall:   ", round(float(test_metrics["recall"]), 3))
+    print("f1:       ", round(float(test_metrics["f1"]), 3))
+    print("pr_auc:   ", round(float(test_metrics["pr_auc"]), 3))
+    print("roc_auc:  ", round(float(test_metrics["roc_auc"]), 3))
+    print("confusion matrix:")
+    print(test_metrics["confusion_matrix"])
+
+    plot_predictions(
         y_test,
         test_probs,
-        threshold=best_thr["threshold"],
+        best_thr,
+        save_path=OUTPUT_DIR / "test_predictions.png",
     )
-    print_metrics("test results", test_metrics, best_thr["threshold"])
 
-    # small debug info
-    print("\nfirst 10 predicted probabilities on test:")
-    print(np.round(test_probs[:10], 3))
+    save_summary(
+        OUTPUT_DIR / "results_summary.txt",
+        WINDOW_SIZE,
+        HORIZON,
+        float(y.mean()),
+        best_thr,
+        test_metrics,
+    )
 
-    print("\nartifacts saved to:", OUTPUT_DIR.resolve())
+    print()
+    print("saved in:", OUTPUT_DIR.resolve())
 
 
 if __name__ == "__main__":
